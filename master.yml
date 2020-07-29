@@ -1,0 +1,140 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Basic VPC with 2 public subnets
+Parameters:
+
+  ##################### ENVIRONMENT PARAMETERS #####################################
+  Identifier:
+    Type: String
+    Description: Identifier to tag resources created by the stack
+  S3BucketName:
+    Type: String
+    Description: bucket where CloudFormation templates are stored
+  OwnerName:
+    Type: String
+    Default: 6connex
+    Description: An arbitrary tag name for the owner of these resources
+  Environment:
+    Type: String
+    Default: dev
+    Description: Environment name to append to resources names and tags
+  ##################### MANAGEMENT ################
+  VpcCidr:
+    Type: String
+    Description: IPV4 CIDR block for the VPC
+    AllowedPattern: "(\\d{1,3}\\.){3}\\d{1,3}/(\\d{1,2})"
+    ConstraintDescription: You must enter a valid CIDR string
+  PublicSubnetsCidr:
+    Type: String
+    Description: IPV4 CIDR blocks for the public subnets
+  SshIp:
+    Type: String
+    Description: IP where ssh access will be allowed
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Description: image id for the ec2 instance
+    Default: image to use, for this demo use Ubuntu 18.04
+  InstanceType:
+    Type: String
+    Description: type of instaces to use
+  DesiredCapacity:
+    Type: Number
+    Description: number of desired nodes
+  MaxSize:
+    Type: Number
+    Description: max number of ec2 instances
+  MinSize:
+    Type: Number
+    Description: min number of ec2 instances
+  DefaultSshKeyName:
+    Type: String
+    Description: name of an ssh key to log in into the instance
+  # ############### Stack ##############
+
+  OwnerName:
+    Type: String
+    Default: nclouds
+    Description: An arbitrary tag name for the owner of these resources
+
+  Environment:
+    Type: String
+    Default: dev
+    Description: Environment name to append to resources names and tags
+
+Resources:
+
+  Network:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        !Sub
+          - "https://${Bucket}.s3.${Region}.amazonaws.com/${Env}/templates/network.yml"
+          - Bucket: !Ref S3BucketName
+            Region: !Ref 'AWS::Region'
+            Env: !Ref Environment
+      Parameters:
+        Identifier: !Ref Identifier
+        VpcCidr: !Ref VpcCidr
+        PublicSubnetsCidr: !Join [ ',', !Split [',', !Ref PublicSubnetsCidr] ]
+        OwnerName: !Ref OwnerName
+        ProjectName: !Ref AWS::StackName
+        Environment: !Ref Environment
+
+  SecurityGroups:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${S3BucketName}.s3.${AWS::Region}.amazonaws.com/${Environment}/templates/scurity_groups.yml"
+      Parameters:
+        Identifier: !Sub ${Identifier}-sgs
+        VpcId: !GetAtt Network.Outputs.VpcId
+        SshIp: !Ref SshIp
+        OwnerName: !Ref OwnerName
+        ProjectName: !Ref AWS::StackName
+        Environment: !Ref Environment
+
+  AlbStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+    - SecurityGroups
+    Properties:
+      TemplateURL: !Sub "https://${S3BucketName}.s3.${AWS::Region}.amazonaws.com/${Environment}/templates/loadbalancer.yml"
+      Parameters:
+        Identifier: !Sub ${Identifier}-alb
+        VpcId: !GetAtt Network.Outputs.VpcId
+        AlbSecurityGroup: !GetAtt SecurityGroups.Outputs.LoadBalancerSg
+        SubnetIds: !Join [',', !Split [',', !GetAtt Network.Outputs.PublicSubnetIds] ]
+        OwnerName: !Ref OwnerName
+        ProjectName: !Ref AWS::StackName
+        Environment: !Ref Environment
+
+  AutoScaling:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+    - AlbStack
+    Properties:
+      TemplateURL: !Sub "https://${S3BucketName}.s3.${AWS::Region}.amazonaws.com/${Environment}/templates/autoscaling.yml"
+      Parameters:
+        Identifier: !Sub ${Identifier}-asg
+        VpcId: !GetAtt Network.Outputs.VpcId
+        ImageId: !Ref ImageId
+        SecurityGroupsIds: !GetAtt SecurityGroups.Outputs.InstanceSg
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref DefaultSshKeyName
+        AvalabilityZones: 'us-west-2a,us-west-2b'
+        SubnetsIds: !Join [',', !Split [',', !GetAtt Network.Outputs.PublicSubnetIds] ]
+        TargetGroupArn: !GetAtt AlbStack.Outputs.DefaultTargetGroup
+        DesiredCapacity: !Ref DesiredCapacity
+        ScalingUpAdjustment: 1
+        MaxSize: !Ref MaxSize
+        MinSize: !Ref MinSize
+        ScalingDownAdjustment: -1
+        ScaleDownCooldown: 300
+        ScaleUpCooldown: 300
+        LowPeriod: 300
+        LowCpuTreshold: 50
+        HighPeriod: 300
+        HighCpuTreshold: 80
+        OwnerName: !Ref OwnerName
+        ProjectName: !Ref AWS::StackName
+        Environment: !Ref Environment

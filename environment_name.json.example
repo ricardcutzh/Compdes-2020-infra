@@ -1,0 +1,57 @@
+[
+    {
+        "ParameterKey": "Identifier",
+        "ParameterValue": ""
+    },
+    {
+        "ParameterKey": "S3BucketName",
+        "ParameterValue": ""
+    },
+    {
+        "ParameterKey": "OwnerName",
+        "ParameterValue": ""
+    },
+    {
+        "ParameterKey": "Environment",
+        "ParameterValue": ""
+    },
+
+    {
+        "ParameterKey": "VpcCidr",
+        "ParameterValue": ""
+    },
+    {
+        "ParameterKey": "PublicSubnetsCidr",
+        "ParameterValue": ""
+    },
+    {
+        "ParameterKey": "SshIp",
+        "ParameterValue": ""
+    },
+
+    {
+        "ParameterKey": "ImageId",
+        "ParameterValue": "ami-003634241a8fcdec0"
+    },
+    {
+        "ParameterKey": "InstanceType",
+        "ParameterValue": "t2.micro"
+    },
+    {
+        "ParameterKey": "DesiredCapacity",
+        "ParameterValue": "0"
+    },
+    {
+        "ParameterKey": "MaxSize",
+        "ParameterValue": "0"
+    },
+    {
+        "ParameterKey": "MinSize",
+        "ParameterValue": "0"
+    },
+    {
+        "ParameterKey": "DefaultSshKeyName",
+        "ParameterValue": ""
+    }
+
+]

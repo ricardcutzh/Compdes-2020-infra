@@ -1,0 +1,265 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: >-
+  Autoscaling group cpu load
+
+Parameters:
+
+  Identifier:
+    Type: String
+    Description: A name identifier for the resources
+
+  VpcId:
+    Type: String
+    Description: vpc id
+
+  ImageId:
+    Type: String
+    Description: Amazon Linux image id
+
+  SecurityGroupsIds:
+    Type: List<String>
+    Description: Security Ids to attach to LaunchTemplate
+
+  InstanceType:
+    Type: String
+    Default: t2.small
+    Description: Instance type
+
+  KeyName:
+    Type: String
+    Default: LuisKeyPair
+    Description: Keypair for the instances
+
+  AvalabilityZones:
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+    Description: List of avalability zones
+
+  SubnetsIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of avalability zones
+
+  TargetGroupArn:
+    Type: String
+    Default: ''
+    Description: Arn for the target group attached to the auto scaling group
+
+  DesiredCapacity:
+    Type: Number
+    Default: 2
+    Description: Desired capacity
+
+  ScalingUpAdjustment:
+    Type: Number
+    Default: 1
+    Description: The amount by which to scale up.
+
+  MaxSize:
+    Type: Number
+    Default: 3
+    Description: Max instances
+
+  MinSize:
+    Type: Number
+    Default: 0
+    Description: Min instances
+
+  LowPeriod:
+    Type: Number
+    Default: 300
+    Description: Period in seconds to scale down
+
+  ScalingDownAdjustment:
+    Type: Number
+    Default: 1
+
+  ScaleDownCooldown:
+    Type: Number
+    Default: 300
+
+  ScaleUpCooldown:
+    Type: Number
+    Default: 300
+
+  LowCpuTreshold:
+    Type: Number
+    Default: 50
+    Description: Treshold to scale down
+
+  HighPeriod:
+    Type: Number
+    Default: 300
+    Description: Period in seconds to scale up
+
+  HighCpuTreshold:
+    Type: Number
+    Default: 80
+    Description: Threshold to scale up
+  # ############### Stack ##############
+
+  OwnerName:
+    Type: String
+    Default: nclouds
+    Description: An arbitrary tag name for the owner of these resources
+
+  ProjectName:
+    Type: String
+    Default: 6connex
+    Description: The name of the stack to which these resources belong
+
+  Environment:
+    Type: String
+    Default: dev
+    Description: Environment name to append to resources names and tags
+
+Resources:
+
+  DefaultRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Identifier}-${Environment}-rts-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AdministratorAccess
+      Tags:
+      - Key: Name
+        Value: !Sub ${Identifier}-${Environment}-default-role
+      - Key: Owner
+        Value: !Ref OwnerName
+      - Key: ProjectName
+        Value: !Ref ProjectName
+      - Key: Environment
+        Value: !Ref Environment
+
+  DefaultInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub ${Identifier}-${Environment}-default-profile
+      Path: /
+      Roles:
+        - !Ref DefaultRole
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${Identifier}-${Environment}-launchtemplate
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Arn: !GetAtt DefaultInstanceProfile.Arn
+        ImageId: !Ref ImageId
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        SecurityGroupIds: !Ref SecurityGroupsIds
+        # - !Ref SecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            apt update
+            apt -y install ruby
+            wget https://aws-codedeploy-${AWS::Region}.s3.${AWS::Region}.amazonaws.com/latest/install
+            chmod +x ./install
+            ./install auto
+            service codedeploy-agent start
+            sudo service codedeploy-agent status
+            # INSTALLING DOCKER
+            apt-get update
+            apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+            add-apt-repository \
+              "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+              $(lsb_release -cs) \
+              stable"
+            apt-get update
+            apt-get install -y docker-ce
+            usermod -aG docker ubuntu
+            # docker compose
+            curl -L https://github.com/docker/compose/releases/download/1.21.0/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+            chmod +x /usr/local/bin/docker-compose
+            docker ps -a
+            echo export ENVIRONMENT=${Environment} >> /etc/profile
+            echo export ENVIRONMENT=${Environment} >> /etc/environment
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub ${Identifier}-${Environment}-asg
+      AvailabilityZones: !Ref AvalabilityZones
+      DesiredCapacity: !Ref DesiredCapacity
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MaxSize: !Ref MaxSize
+      MinSize: !Ref MinSize
+      TargetGroupARNs: !Split [',', !Ref TargetGroupArn]
+      VPCZoneIdentifier: !Ref SubnetsIds
+      Tags:
+      - Key: Name
+        PropagateAtLaunch: true
+        Value: !Sub ${Identifier}-${Environment}-asg
+      - Key: Owner
+        PropagateAtLaunch: true
+        Value: !Ref OwnerName
+      - Key: ProjectName
+        PropagateAtLaunch: true
+        Value: !Ref ProjectName
+      - Key: Environment
+        PropagateAtLaunch: true
+        Value: !Ref Environment
+
+  #################### scaling policies ##############################
+  ScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      Cooldown: !Ref ScaleUpCooldown
+      ScalingAdjustment: !Ref ScalingUpAdjustment
+
+  ScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      Cooldown: !Ref ScaleDownCooldown
+      ScalingAdjustment: !Ref ScalingDownAdjustment
+
+  CPUAlarmLow:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: !Sub Scale-down if CPU < ${LowCpuTreshold}% for ${LowPeriod} seconds
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: !Ref LowPeriod
+      EvaluationPeriods: 2
+      Threshold: !Ref LowCpuTreshold
+      AlarmActions: [!Ref ScaleDownPolicy]
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value: !Ref AutoScalingGroup
+      ComparisonOperator: LessThanThreshold
+
+  CPUAlarmHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: !Sub Scale-up if CPU > ${HighCpuTreshold}% for ${HighPeriod} minutes
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: !Ref HighPeriod
+      EvaluationPeriods: 2
+      Threshold: !Ref HighCpuTreshold
+      AlarmActions: [!Ref ScaleUpPolicy]
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value: !Ref AutoScalingGroup
+      ComparisonOperator: GreaterThanThreshold

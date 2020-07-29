@@ -1,0 +1,101 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Creates all resources related to SecurityGroups
+
+Parameters:
+
+  Identifier:
+    Type: String
+    Description: A name identifier to tag the networking resources
+
+  SshIp:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: IP allowed to ssh into instances
+
+  VpcId:
+    Type: String
+    Description: VPC In which SecurityGroups will be created
+
+  OwnerName:
+    Type: String
+    Default: nclouds
+    Description: An arbitrary tag name for the owner of these resources
+
+  ProjectName:
+    Type: String
+    Description: The name of the project to which these resources belong
+
+  Environment:
+    Type: String
+    Default: dev
+    Description: Environment name to append to resources names and tags
+
+Resources:
+
+  #####    opsworks security group  #####
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub SecurityGroup for ALB on env ${Environment}
+      GroupName: !Sub ${Identifier}-${Environment}-alb-sg
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: !Sub ${Identifier}-${Environment}-alb-sg
+      - Key: Owner
+        Value: !Ref OwnerName
+      - Key: ProjectName
+        Value: !Ref ProjectName
+      - Key: Environment
+        Value: !Ref Environment
+
+  InstancesSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub SecurityGroup for instances on env ${Environment}
+      GroupName: !Sub ${Identifier}-${Environment}-instances-sg
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: !Ref SshIp
+      Tags:
+      - Key: Name
+        Value: !Sub ${Identifier}-${Environment}-alb-sg
+      - Key: Owner
+        Value: !Ref OwnerName
+      - Key: ProjectName
+        Value: !Ref ProjectName
+      - Key: Environment
+        Value: !Ref Environment
+
+Outputs:
+
+  LoadBalancerSg:
+    Description: Security Group for Application Load balancer
+    Value: !Ref LoadBalancerSecurityGroup
+
+  InstanceSg:
+    Description: Security for instances
+    Value: !Ref InstancesSecurityGroup
